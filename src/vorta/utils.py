@@ -8,6 +8,7 @@ import sys
 import unicodedata
 from datetime import datetime as dt
 from functools import reduce
+from globmatch import glob_match
 
 import psutil
 from paramiko import SSHException
@@ -31,24 +32,37 @@ _network_status_monitor = None
 
 
 class FilePathInfoAsync(QThread):
-    signal = pyqtSignal(str, str, str)
+    signal = pyqtSignal(str, str, str, str)
 
-    def __init__(self, path):
+    def __init__(self, path, exclude_patterns):
         self.path = path
         QThread.__init__(self)
         self.exiting = False
+        self.exclude_patterns = list(map(
+            str.strip,
+            exclude_patterns.splitlines()
+        ))
 
     def run(self):
         # logger.info("running thread to get path=%s...", self.path)
         self.files_count = 0
-        self.size, self.files_count = get_path_datasize(self.path)
-        self.signal.emit(self.path, str(self.size), str(self.files_count))
+        self.size, self.size_filtered, self.files_count = get_path_datasize(
+            self.path,
+            self.exclude_patterns
+        )
+        self.signal.emit(
+            self.path,
+            str(self.size),
+            str(self.size_filtered),
+            str(self.files_count)
+        )
 
 
-def get_directory_size(dir_path):
+def get_directory_size(dir_path, exclude_patterns):
     ''' Get number of files only and total size in bytes from a path.
         Based off https://stackoverflow.com/a/17936789 '''
     data_size = 0
+    data_size_filtered = 0
     seen = set()
 
     for curr_path, _, file_names in os.walk(dir_path):
@@ -59,17 +73,21 @@ def get_directory_size(dir_path):
             if os.path.islink(file_path):
                 continue
 
+            is_excluded = glob_match(file_path, exclude_patterns)
+
             try:
                 stat = os.stat(file_path)
                 if stat.st_ino not in seen:  # Visit each file only once
                     seen.add(stat.st_ino)
                     data_size += stat.st_size
+                    if not is_excluded:
+                        data_size_filtered += stat.st_size
             except FileNotFoundError:
                 continue
 
     files_count = len(seen)
 
-    return data_size, files_count
+    return data_size, data_size_filtered, files_count
 
 
 def get_network_status_monitor():
@@ -80,12 +98,15 @@ def get_network_status_monitor():
     return _network_status_monitor
 
 
-def get_path_datasize(path):
+def get_path_datasize(path, exclude_patterns):
     file_info = QFileInfo(path)
     data_size = 0
 
     if file_info.isDir():
-        data_size, files_count = get_directory_size(file_info.absoluteFilePath())
+        data_size, data_size_filtered, files_count = get_directory_size(
+            file_info.absoluteFilePath(),
+            exclude_patterns
+        )
         # logger.info("path (folder) %s %u elements size now=%u (%s)",
         #            file_info.absoluteFilePath(), files_count, data_size, pretty_bytes(data_size))
     else:
@@ -93,7 +114,7 @@ def get_path_datasize(path):
         data_size = file_info.size()
         files_count = 1
 
-    return data_size, files_count
+    return data_size, data_size_filtered, files_count
 
 
 def nested_dict():

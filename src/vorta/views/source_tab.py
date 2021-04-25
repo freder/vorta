@@ -14,7 +14,8 @@ class SourceColumn:
     Path = 0
     Type = 1
     Size = 2
-    FilesCount = 3
+    SizeFiltered = 3
+    FilesCount = 4
 
 
 class SizeItem(QTableWidgetItem):
@@ -56,6 +57,7 @@ class SourceTab(SourceBase, SourceUI, BackupProfileMixin):
         header.setSectionResizeMode(SourceColumn.Path, QHeaderView.Stretch)
         header.setSectionResizeMode(SourceColumn.Type, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(SourceColumn.Size, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(SourceColumn.SizeFiltered, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(SourceColumn.FilesCount, QHeaderView.ResizeToContents)
 
         self.sourceFilesWidget.setSortingEnabled(True)
@@ -68,10 +70,11 @@ class SourceTab(SourceBase, SourceUI, BackupProfileMixin):
         self.excludeIfPresentField.textChanged.connect(self.save_exclude_if_present)
         self.populate_from_profile()
 
-    def set_path_info(self, path, data_size, files_count):
+    def set_path_info(self, path, data_size, data_size_filtered, files_count):
         items = self.sourceFilesWidget.findItems(path, QtCore.Qt.MatchExactly)
         # Conversion int->str->int needed because QT limits int to 32-bit
         data_size = int(data_size)
+        data_size_filtered = int(data_size_filtered)
         files_count = int(files_count)
 
         for item in items:
@@ -86,6 +89,7 @@ class SourceTab(SourceBase, SourceUI, BackupProfileMixin):
                 self.sourceFilesWidget.item(item.row(), SourceColumn.FilesCount).setText("")
                 db_item.path_isdir = False
             self.sourceFilesWidget.item(item.row(), SourceColumn.Size).setText(pretty_bytes(data_size))
+            self.sourceFilesWidget.item(item.row(), SourceColumn.SizeFiltered).setText(pretty_bytes(data_size_filtered))
 
             db_item.dir_size = data_size
             db_item.dir_files_count = files_count
@@ -99,8 +103,9 @@ class SourceTab(SourceBase, SourceUI, BackupProfileMixin):
         path = self.sourceFilesWidget.item(index_row, SourceColumn.Path).text()
         self.sourceFilesWidget.item(index_row, SourceColumn.Type).setText(self.tr("Calculating..."))
         self.sourceFilesWidget.item(index_row, SourceColumn.Size).setText(self.tr("Calculating..."))
+        self.sourceFilesWidget.item(index_row, SourceColumn.SizeFiltered).setText(self.tr("Calculating..."))
         self.sourceFilesWidget.item(index_row, SourceColumn.FilesCount).setText(self.tr("Calculating..."))
-        getDir = FilePathInfoAsync(path)
+        getDir = FilePathInfoAsync(path, self.profile().exclude_patterns)
         getDir.signal.connect(self.set_path_info)
         getDir.setObjectName(path)
         self.updateThreads.append(getDir)  # this is ugly, is there a better way to keep the thread object?
@@ -116,6 +121,7 @@ class SourceTab(SourceBase, SourceUI, BackupProfileMixin):
         self.sourceFilesWidget.setItem(index_row, SourceColumn.Path, QTableWidgetItem(source.dir))
         self.sourceFilesWidget.setItem(index_row, SourceColumn.Type, QTableWidgetItem(""))
         self.sourceFilesWidget.setItem(index_row, SourceColumn.Size, SizeItem(""))
+        self.sourceFilesWidget.setItem(index_row, SourceColumn.SizeFiltered, SizeItem(""))
         self.sourceFilesWidget.setItem(index_row, SourceColumn.FilesCount, FilesCount(""))
 
         if update_data:
