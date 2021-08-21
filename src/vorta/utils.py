@@ -89,7 +89,7 @@ def translate(pat, match_end=r"\Z"):
 
 
 class FilePathInfoAsync(QThread):
-    signal = pyqtSignal(str, str, str, str)
+    signal = pyqtSignal(str, str, str, str, str)
 
     def __init__(self, path, exclude_patterns):
         self.path = path
@@ -107,7 +107,13 @@ class FilePathInfoAsync(QThread):
     def run(self):
         # logger.info("running thread to get path=%s...", self.path)
         self.files_count = 0
-        self.size, self.size_filtered, self.files_count = get_path_datasize(
+        self.files_count_filtered = 0
+        (
+            self.size,
+            self.size_filtered,
+            self.files_count,
+            self.files_count_filtered
+        ) = get_path_datasize(
             self.path,
             self.exclude_patterns_re
         )
@@ -115,7 +121,8 @@ class FilePathInfoAsync(QThread):
             self.path,
             str(self.size),
             str(self.size_filtered),
-            str(self.files_count)
+            str(self.files_count),
+            str(self.files_count_filtered)
         )
 
 
@@ -125,6 +132,7 @@ def get_directory_size(dir_path, exclude_patterns_re):
     data_size = 0
     data_size_filtered = 0
     seen = set()
+    seen_filtered = set()
 
     for curr_path, _, file_names in os.walk(dir_path):
         for file_name in file_names:
@@ -147,12 +155,14 @@ def get_directory_size(dir_path, exclude_patterns_re):
                     data_size += stat.st_size
                     if not is_excluded:
                         data_size_filtered += stat.st_size
+                        seen_filtered.add(stat.st_ino)
             except FileNotFoundError:
                 continue
 
     files_count = len(seen)
+    files_count_filtered = len(seen_filtered)
 
-    return data_size, data_size_filtered, files_count
+    return data_size, data_size_filtered, files_count, files_count_filtered
 
 
 def get_network_status_monitor():
@@ -168,7 +178,12 @@ def get_path_datasize(path, exclude_patterns_re):
     data_size = 0
 
     if file_info.isDir():
-        data_size, data_size_filtered, files_count = get_directory_size(
+        (
+            data_size,
+            data_size_filtered,
+            files_count,
+            files_count_filtered
+        ) = get_directory_size(
             file_info.absoluteFilePath(),
             exclude_patterns_re
         )
@@ -179,7 +194,7 @@ def get_path_datasize(path, exclude_patterns_re):
         data_size = file_info.size()
         files_count = 1
 
-    return data_size, data_size_filtered, files_count
+    return data_size, data_size_filtered, files_count, files_count_filtered
 
 
 def nested_dict():

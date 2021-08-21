@@ -16,6 +16,7 @@ class SourceColumn:
     Size = 2
     SizeFiltered = 3
     FilesCount = 4
+    FilesCountFiltered = 5
 
 
 class SizeItem(QTableWidgetItem):
@@ -59,6 +60,7 @@ class SourceTab(SourceBase, SourceUI, BackupProfileMixin):
         header.setSectionResizeMode(SourceColumn.Size, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(SourceColumn.SizeFiltered, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(SourceColumn.FilesCount, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(SourceColumn.FilesCountFiltered, QHeaderView.ResizeToContents)
 
         self.sourceFilesWidget.setSortingEnabled(True)
         self.sourceAddFolder.clicked.connect(lambda: self.source_add(want_folder=True))
@@ -70,23 +72,26 @@ class SourceTab(SourceBase, SourceUI, BackupProfileMixin):
         self.excludeIfPresentField.textChanged.connect(self.save_exclude_if_present)
         self.populate_from_profile()
 
-    def set_path_info(self, path, data_size, data_size_filtered, files_count):
+    def set_path_info(self, path, data_size, data_size_filtered, files_count, files_count_filtered):
         items = self.sourceFilesWidget.findItems(path, QtCore.Qt.MatchExactly)
         # Conversion int->str->int needed because QT limits int to 32-bit
         data_size = int(data_size)
         data_size_filtered = int(data_size_filtered)
         files_count = int(files_count)
+        files_count_filtered = int(files_count_filtered)
 
         for item in items:
             db_item = SourceFileModel.get(dir=path)
             if QFileInfo(path).isDir():
                 self.sourceFilesWidget.item(item.row(), SourceColumn.Type).setText(self.tr("Folder"))
                 self.sourceFilesWidget.item(item.row(), SourceColumn.FilesCount).setText(format(files_count))
+                self.sourceFilesWidget.item(item.row(), SourceColumn.FilesCountFiltered).setText(format(files_count_filtered))
                 db_item.path_isdir = True
             else:
                 self.sourceFilesWidget.item(item.row(), SourceColumn.Type).setText(self.tr("File"))
                 # No files count, if entry itself is a file
                 self.sourceFilesWidget.item(item.row(), SourceColumn.FilesCount).setText("")
+                self.sourceFilesWidget.item(item.row(), SourceColumn.FilesCountFiltered).setText("")
                 db_item.path_isdir = False
             self.sourceFilesWidget.item(item.row(), SourceColumn.Size).setText(pretty_bytes(data_size))
             self.sourceFilesWidget.item(item.row(), SourceColumn.SizeFiltered).setText(pretty_bytes(data_size_filtered))
@@ -123,6 +128,7 @@ class SourceTab(SourceBase, SourceUI, BackupProfileMixin):
         self.sourceFilesWidget.setItem(index_row, SourceColumn.Size, SizeItem(""))
         self.sourceFilesWidget.setItem(index_row, SourceColumn.SizeFiltered, SizeItem(""))
         self.sourceFilesWidget.setItem(index_row, SourceColumn.FilesCount, FilesCount(""))
+        self.sourceFilesWidget.setItem(index_row, SourceColumn.FilesCountFiltered, FilesCount(""))
 
         if update_data:
             self.update_path_info(index_row)

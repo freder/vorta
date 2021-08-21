@@ -89,6 +89,11 @@
          <string>File Count</string>
         </property>
        </column>
+       <column>
+        <property name="text">
+         <string>File Count (filtered)</string>
+        </property>
+       </column>
       </widget>
      </item>
      <item>
