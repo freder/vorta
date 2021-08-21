@@ -8,7 +8,6 @@ import sys
 import unicodedata
 from datetime import datetime as dt
 from functools import reduce
-from globmatch import glob_match
 
 import psutil
 from paramiko import SSHException
@@ -31,6 +30,64 @@ borg_compat = BorgCompatibility()
 _network_status_monitor = None
 
 
+# copied from https://github.com/borgbackup/borg/blob/master/src/borg/shellpattern.py
+def translate(pat, match_end=r"\Z"):
+    """Translate a shell-style pattern to a regular expression.
+    The pattern may include ``**<sep>`` (<sep> stands for the platform-specific path separator; "/" on POSIX systems) for
+    matching zero or more directory levels and "*" for matching zero or more arbitrary characters with the exception of
+    any path separator. Wrap meta-characters in brackets for a literal match (i.e. "[?]" to match the literal character
+    "?").
+    Using match_end=regex one can give a regular expression that is used to match after the regex that is generated from
+    the pattern. The default is to match the end of the string.
+    This function is derived from the "fnmatch" module distributed with the Python standard library.
+    Copyright (C) 2001-2016 Python Software Foundation. All rights reserved.
+    TODO: support {alt1,alt2} shell-style alternatives
+    """
+    sep = os.path.sep
+    n = len(pat)
+    i = 0
+    res = ""
+
+    while i < n:
+        c = pat[i]
+        i += 1
+
+        if c == "*":
+            if i + 1 < n and pat[i] == "*" and pat[i + 1] == sep:
+                # **/ == wildcard for 0+ full (relative) directory names with trailing slashes; the forward slash stands
+                # for the platform-specific path separator
+                res += r"(?:[^\%s]*\%s)*" % (sep, sep)
+                i += 2
+            else:
+                # * == wildcard for name parts (does not cross path separator)
+                res += r"[^\%s]*" % sep
+        elif c == "?":
+            # ? == any single character excluding path separator
+            res += r"[^\%s]" % sep
+        elif c == "[":
+            j = i
+            if j < n and pat[j] == "!":
+                j += 1
+            if j < n and pat[j] == "]":
+                j += 1
+            while j < n and pat[j] != "]":
+                j += 1
+            if j >= n:
+                res += "\\["
+            else:
+                stuff = pat[i:j].replace("\\", "\\\\")
+                i = j + 1
+                if stuff[0] == "!":
+                    stuff = "^" + stuff[1:]
+                elif stuff[0] == "^":
+                    stuff = "\\" + stuff
+                res += "[%s]" % stuff
+        else:
+            res += re.escape(c)
+
+    return "(?ms)" + res + match_end
+
+
 class FilePathInfoAsync(QThread):
     signal = pyqtSignal(str, str, str, str)
 
@@ -42,13 +99,17 @@ class FilePathInfoAsync(QThread):
             str.strip,
             exclude_patterns.splitlines()
         ))
+        self.exclude_patterns_re = [
+            translate(pattern, '')
+            for pattern in self.exclude_patterns
+        ]
 
     def run(self):
         # logger.info("running thread to get path=%s...", self.path)
         self.files_count = 0
         self.size, self.size_filtered, self.files_count = get_path_datasize(
             self.path,
-            self.exclude_patterns
+            self.exclude_patterns_re
         )
         self.signal.emit(
             self.path,
@@ -58,7 +119,7 @@ class FilePathInfoAsync(QThread):
         )
 
 
-def get_directory_size(dir_path, exclude_patterns):
+def get_directory_size(dir_path, exclude_patterns_re):
     ''' Get number of files only and total size in bytes from a path.
         Based off https://stackoverflow.com/a/17936789 '''
     data_size = 0
@@ -73,7 +134,11 @@ def get_directory_size(dir_path, exclude_patterns):
             if os.path.islink(file_path):
                 continue
 
-            is_excluded = glob_match(file_path, exclude_patterns)
+            is_excluded = False
+            for pattern in exclude_patterns_re:
+                if re.match(pattern, file_path) is not None:
+                    is_excluded = True
+                    break
 
             try:
                 stat = os.stat(file_path)
@@ -98,14 +163,14 @@ def get_network_status_monitor():
     return _network_status_monitor
 
 
-def get_path_datasize(path, exclude_patterns):
+def get_path_datasize(path, exclude_patterns_re):
     file_info = QFileInfo(path)
     data_size = 0
 
     if file_info.isDir():
         data_size, data_size_filtered, files_count = get_directory_size(
             file_info.absoluteFilePath(),
-            exclude_patterns
+            exclude_patterns_re
         )
         # logger.info("path (folder) %s %u elements size now=%u (%s)",
         #            file_info.absoluteFilePath(), files_count, data_size, pretty_bytes(data_size))
